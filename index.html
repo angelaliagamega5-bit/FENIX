@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Procesador Ensayo Fénix TXT - Offline</title>
+<style>
+  :root{--bg:#f4f6f8;--card:#fff;--ink:#1f2937;--muted:#6b7280;--line:#d1d5db;--accent:#1d4ed8;--ok:#047857;--warn:#b45309;--bad:#b91c1c;--gd:rgba(37,99,235,.22);--t:rgba(220,38,38,.20);--it:rgba(234,179,8,.30)}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}
+  header{background:#111827;color:white;padding:18px 22px} header h1{margin:0;font-size:22px} header p{margin:6px 0 0;color:#d1d5db}
+  main{max-width:1220px;margin:0 auto;padding:18px;display:grid;gap:16px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:var(--card);border:1px solid #e5e7eb;border-radius:14px;padding:16px;box-shadow:0 2px 12px rgba(0,0,0,.05)}
+  h2{font-size:18px;margin:0 0 12px}.row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.field input,.field select{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:white}.field input[type="checkbox"]{width:auto}
+  button,.filelabel{display:inline-block;border:0;background:var(--accent);color:white;padding:10px 12px;border-radius:9px;font-weight:700;cursor:pointer;margin:4px 4px 4px 0;text-decoration:none}.secondary{background:#374151}.green{background:#047857}.orange{background:#b45309}.red{background:#b91c1c}button:disabled{background:#9ca3af;cursor:not-allowed}
+  #fileName{color:var(--muted);font-size:13px;margin-top:8px}.checks{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}.checks label{font-size:13px}.graph-controls{border:1px solid #e5e7eb;background:#f9fafb;border-radius:12px;padding:10px 12px;margin-bottom:12px}
+  canvas{width:100%;height:520px;border:1px solid var(--line);border-radius:12px;background:#fff}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{border-radius:14px;padding:14px;background:#eef2ff;border:1px solid #c7d2fe}.metric b{display:block;font-size:13px;color:#3730a3}.metric span{display:block;font-size:24px;font-weight:800;margin-top:6px}.metric small{color:#555}
+  table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e5e7eb;padding:7px;text-align:left}th{background:#f9fafb}.warnbox{border-left:5px solid var(--warn);background:#fff7ed;padding:10px;border-radius:8px;color:#7c2d12}.okbox{border-left:5px solid var(--ok);background:#ecfdf5;padding:10px;border-radius:8px;color:#064e3b}.badbox{border-left:5px solid var(--bad);background:#fef2f2;padding:10px;border-radius:8px;color:#7f1d1d}
+  .note{font-size:12px;color:var(--muted);line-height:1.45}.hidden{display:none}@media(max-width:900px){.grid,.row,.cards{grid-template-columns:1fr}canvas{height:420px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Procesador offline del Ensayo Fénix desde TXT</h1>
+  <p>Permite elegir si el cálculo usa Cruceta [mm] o Deflexion [mm] corregida por continuidad como desplazamiento. No requiere internet.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>1. Archivo y parámetros geométricos</h2>
+    <input id="fileInput" type="file" accept=".txt,text/plain" class="hidden" />
+    <label for="fileInput" class="filelabel">Cargar TXT</label>
+    <span id="fileName">Ningún archivo cargado</span>
+    <div class="row" style="margin-top:12px">
+      <div class="field"><label>Altura h [mm]</label><input id="h" type="number" step="0.001" value="62.24"></div>
+      <div class="field"><label>Radio reducido rr [mm]</label><input id="rr" type="number" step="0.001" value="43.70"></div>
+      <div class="field"><label>Desplazamiento final df [mm]</label><input id="df" type="number" step="0.001" value="4.000"></div>
+      <div class="field"><label>Fuente de desplazamiento</label><select id="dispMode"><option value="cruceta" selected>Cruceta [mm]</option><option value="deflexion_corr">Deflexion corregida por continuidad</option></select></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div class="field"><label>Suavizado</label><select id="smooth"><option value="1">Sin suavizado</option><option value="3">Media móvil 3 puntos</option><option value="5" selected>Media móvil 5 puntos</option><option value="7">Media móvil 7 puntos</option><option value="9">Media móvil 9 puntos</option></select></div>
+      <div class="field"><label>Puntos de cola para tendencia</label><input id="tailPoints" type="number" step="1" min="4" value="6"></div>
+      <div class="field"><label>Carga mínima extrapolada [kN]</label><input id="minExtrapLoad" type="number" step="0.001" min="0" value="0.050"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Resultados principales</h2>
+    <div class="cards">
+      <div class="metric"><b>GD</b><span id="mGD">—</span><small>J/m²</small></div>
+      <div class="metric"><b>T</b><span id="mT">—</span><small>J/m²</small></div>
+      <div class="metric"><b>IT = T × DT</b><span id="mIT">—</span><small>(J/m²)·mm</small></div>
+      <div class="metric"><b>IF = GD × d50pm / σef</b><span id="mIF">—</span><small>mm³, usando σef = RT</small></div>
+    </div>
+    <div id="status" style="margin-top:12px" class="warnbox">Carga un archivo TXT para iniciar el cálculo.</div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>3. Curva carga–desplazamiento</h2>
+      <div class="graph-controls">
+        <div class="checks">
+          <label><input id="useExtrap" type="checkbox" checked> Extrapolar postpico hasta df si falta tramo</label>
+          <label><input id="showGD" type="checkbox" checked> Mostrar área GD</label>
+          <label><input id="showT" type="checkbox" checked> Mostrar área T</label>
+          <label><input id="showIT" type="checkbox" checked> Mostrar zona IT</label>
+        </div>
+        <p class="note">La extrapolación prioriza una tendencia exponencial decreciente ajustada a los últimos puntos postpico seleccionados. La carga extrapolada se limita a una carga mínima técnica para evitar valores negativos o físicamente inconsistentes. Los valores extrapolados se reportan como estimados, no medidos.</p>
+      </div>
+      <canvas id="chart" width="1100" height="620"></canvas>
+    </div>
+    <div class="card">
+      <h2>4. Resultados detallados</h2>
+      <table id="resTable"><tbody><tr><td>Sin datos</td><td>—</td></tr></tbody></table>
+      <div style="margin-top:12px">
+        <button id="btnCSV" disabled>Descargar CSV</button>
+        <button id="btnXLS" class="green" disabled>Descargar Excel .xls</button>
+        <button id="btnPDF" class="orange" disabled>Descargar PDF</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>5. Datos procesados</h2>
+    <div style="max-height:300px;overflow:auto"><table id="dataTable"><tbody><tr><td>Sin datos</td></tr></tbody></table></div>
+  </section>
+</main>
+<script>
+'use strict';
+const $ = (id)=>document.getElementById(id);
+let state = {rawText:'', meta:{}, measured:[], data:[], results:null, warnings:[], displacementMode:'cruceta'};
+
+function parseNumber(v){
+  if(v===undefined || v===null) return NaN;
+  return Number(String(v).trim().replace(',', '.'));
+}
+function fmt(v, n=3){ return Number.isFinite(v) ? Number(v).toFixed(n) : '—'; }
+function fmtLong(v){ if(!Number.isFinite(v)) return '—'; const av=Math.abs(v); return av>=100 ? v.toFixed(1) : av>=10 ? v.toFixed(2) : v.toFixed(3); }
+
+function parseTxt(text){
+  const lines = text.replace(/\r/g,'').split('\n');
+  const meta = {};
+  for(const line of lines){
+    const m = line.match(/^([^:\[][^:]*):\s*(.*)$/);
+    if(m) meta[m[1].trim()] = m[2].trim();
+  }
+  const graphIdx = lines.findIndex(l=>l.trim().toUpperCase()==='[GRAPH]');
+  if(graphIdx < 0) throw new Error('No se encontró la sección [GRAPH].');
+  let headerIdx = graphIdx + 1;
+  while(headerIdx < lines.length && lines[headerIdx].trim()==='') headerIdx++;
+  const data=[];
+  for(let i=headerIdx+1;i<lines.length;i++){
+    const line = lines[i].trim();
+    if(!line) continue;
+    if(line.startsWith('[')) break;
+    const parts = line.split(/\s+/).filter(Boolean);
+    if(parts.length < 4) continue;
+    const carga = parseNumber(parts[0]);
+    const deflexionOriginal = parseNumber(parts[1]);
+    const tiempo = parseNumber(parts[2]);
+    const cruceta = parseNumber(parts[3]);
+    if([carga, tiempo, cruceta, deflexionOriginal].every(Number.isFinite)){
+      data.push({cruceta, deflexionOriginal, y:carga, yRaw:carga, t:tiempo, extrap:false});
+    }
+  }
+  if(data.length < 5) throw new Error('La sección [GRAPH] no contiene suficientes puntos válidos.');
+  return {meta, data};
+}
+
+function prepareMeasuredPoints(raw, warnings){
+  const mode = $('dispMode').value || 'cruceta';
+  state.displacementMode = mode;
+  let points = [];
+  if(mode === 'deflexion_corr'){
+    const defs = raw.map(p=>p.deflexionOriginal);
+    let idxMax = 0;
+    for(let i=1;i<defs.length;i++){ if(defs[i] > defs[idxMax]) idxMax = i; }
+    const d0 = defs[0];
+    const dmaxPos = defs[idxMax];
+    let xcorr = new Array(raw.length);
+    for(let i=0;i<raw.length;i++){
+      const d = defs[i];
+      if(i <= idxMax) xcorr[i] = d - d0;
+      else xcorr[i] = (dmaxPos - d0) + (dmaxPos - d);
+    }
+    for(let i=1;i<xcorr.length;i++){ if(xcorr[i] < xcorr[i-1]) xcorr[i] = xcorr[i-1]; }
+    points = raw.map((p,i)=>({x:Math.max(0,xcorr[i]), y:p.y, yRaw:p.yRaw, t:p.t, cruceta:p.cruceta, deflexionOriginal:p.deflexionOriginal, extrap:false}));
+    warnings.push('Desplazamiento calculado con Deflexion [mm] corregida por continuidad. Se detectó deflexión máxima positiva de '+fmt(dmaxPos,3)+' mm antes de invertir la lectura postpico.');
+  } else {
+    points = raw.map(p=>({x:p.cruceta, y:p.y, yRaw:p.yRaw, t:p.t, cruceta:p.cruceta, deflexionOriginal:p.deflexionOriginal, extrap:false}));
+  }
+  points.sort((a,b)=> a.x-b.x || a.t-b.t);
+  return points;
+}
+
+function interpX(points, target, start, end, direction){
+  if(direction==='up'){
+    for(let i=start+1; i<=end; i++){
+      const p0=points[i-1], p1=points[i];
+      if((p0.y <= target && p1.y >= target) || (p0.y >= target && p1.y <= target)){
+        if(p1.y===p0.y) return p1.x;
+        const r=(target-p0.y)/(p1.y-p0.y); return p0.x + r*(p1.x-p0.x);
+      }
+    }
+  }else{
+    for(let i=start+1; i<=end; i++){
+      const p0=points[i-1], p1=points[i];
+      if((p0.y >= target && p1.y <= target) || (p0.y <= target && p1.y >= target)){
+        if(p1.y===p0.y) return p1.x;
+        const r=(target-p0.y)/(p1.y-p0.y); return p0.x + r*(p1.x-p0.x);
+      }
+    }
+  }
+  return NaN;
+}
+function interpY(points, x){
+  if(x <= points[0].x) return points[0].y;
+  if(x >= points[points.length-1].x) return points[points.length-1].y;
+  for(let i=1;i<points.length;i++){
+    const p0=points[i-1], p1=points[i];
+    if((p0.x <= x && x <= p1.x) || (p1.x <= x && x <= p0.x)){
+      if(p1.x===p0.x) return p1.y;
+      const r=(x-p0.x)/(p1.x-p0.x); return p0.y + r*(p1.y-p0.y);
+    }
+  }
+  return NaN;
+}
+function areaBetween(points, xa, xb){
+  if(!Number.isFinite(xa)||!Number.isFinite(xb)||xb<=xa) return NaN;
+  const arr=[];
+  arr.push({x:xa,y:Math.max(0,interpY(points,xa))});
+  for(const p of points){ if(p.x>xa && p.x<xb) arr.push({x:p.x,y:Math.max(0,p.y)}); }
+  arr.push({x:xb,y:Math.max(0,interpY(points,xb))});
+  arr.sort((a,b)=>a.x-b.x);
+  let a=0;
+  for(let i=1;i<arr.length;i++){
+    const dx=arr[i].x-arr[i-1].x;
+    if(dx>0) a += dx*(arr[i].y+arr[i-1].y)/2;
+  }
+  return a; // kN*mm
+}
+function smoothMeasured(points, windowSize){
+  const w = Math.max(1, Math.floor(windowSize || 1));
+  if(w <= 1) return points.map(p=>({...p, yRaw:p.y, y:p.y, smooth:false}));
+  const half = Math.floor(w/2);
+  return points.map((p,i)=>{
+    let sum=0, count=0;
+    for(let j=i-half;j<=i+half;j++){
+      if(j>=0 && j<points.length && Number.isFinite(points[j].y)){ sum += points[j].y; count++; }
+    }
+    return {...p, yRaw:p.yRaw ?? p.y, y: count ? sum/count : p.y, smooth:true};
+  });
+}
+
+function fitTailExponential(measured, iMax, df, warnings){
+  const last = measured[measured.length-1];
+  if(last.x >= df) return [];
+  const tailN = Math.max(4, Math.floor(parseNumber($('tailPoints').value) || 6));
+  const minLoad = Math.max(0, parseNumber($('minExtrapLoad').value) || 0);
+  const post = measured.filter((p,idx)=>idx>iMax && p.x>measured[iMax].x && p.y>0.0001);
+  const tail = post.slice(-tailN);
+  if(tail.length < 4){ warnings.push('No hay suficientes puntos postpico para ajustar la extrapolación exponencial; se requiere al menos 4 puntos de cola.'); return []; }
+
+  // Ajuste exponencial y = C + A·exp(-k·(x-x0)), anclado al último punto medido.
+  // C se toma como carga mínima extrapolada configurada por el usuario.
+  const C = Math.min(minLoad, Math.max(0, last.y*0.95));
+  const usable = tail.filter(p=>p.y > C + 1e-6);
+  if(usable.length < 4){
+    warnings.push('La carga mínima extrapolada es demasiado alta para ajustar la cola exponencial; se redujo internamente el piso de carga.');
+  }
+  const Cfit = usable.length >= 4 ? C : Math.max(0, Math.min(...tail.map(p=>p.y))*0.25);
+  const fitPts = tail.filter(p=>p.y > Cfit + 1e-6);
+  if(fitPts.length < 4){
+    warnings.push('No fue posible ajustar una cola exponencial estable; se aplicó una prolongación lineal no negativa como respaldo.');
+    const out=[]; const steps=Math.max(20, Math.ceil((df-last.x)/0.02)); const dx=(df-last.x)/steps;
+    const m=(tail[tail.length-1].y-tail[0].y)/(tail[tail.length-1].x-tail[0].x);
+    for(let i=1;i<=steps;i++){ const x=last.x+i*dx; const y=Math.max(minLoad, last.y + m*(x-last.x)); out.push({x,y,yRaw:y,t:NaN,deflexionOriginal:NaN,extrap:true}); }
+    return out;
+  }
+  const x0 = last.x;
+  const xs=fitPts.map(p=>p.x-x0), lny=fitPts.map(p=>Math.log(Math.max(1e-9,p.y-Cfit)));
+  const n=xs.length, sx=xs.reduce((a,b)=>a+b,0), sy=lny.reduce((a,b)=>a+b,0), sxx=xs.reduce((a,b)=>a+b*b,0), sxy=xs.reduce((a,_,i)=>a+xs[i]*lny[i],0);
+  const den=n*sxx-sx*sx;
+  let slope = den!==0 ? (n*sxy-sx*sy)/den : NaN;
+  let k = -slope;
+  if(!Number.isFinite(k) || k<=0){
+    warnings.push('La tendencia final no fue decreciente; se aplicó una constante exponencial conservadora.');
+    k = 1.0;
+  }
+  k = Math.min(Math.max(k,0.05),6.0);
+  const A = Math.max(0, last.y - Cfit);
+  const out=[]; const steps=Math.max(20, Math.ceil((df-last.x)/0.02)); const dx=(df-last.x)/steps;
+  for(let i=1;i<=steps;i++){
+    const x=last.x+i*dx;
+    const y=Math.max(minLoad, Cfit + A*Math.exp(-k*(x-last.x)));
+    out.push({x,y,yRaw:y,t:NaN,deflexionOriginal:NaN,extrap:true});
+  }
+  warnings.push('Se extrapoló la rama postpico hasta df mediante modelo exponencial decreciente ajustado con '+tail.length+' puntos de cola y carga mínima '+fmt(minLoad,3)+' kN.');
+  return out;
+}
+
+function calculate(){
+  if(!state.measured.length) return;
+  const h=parseNumber($('h').value), rr=parseNumber($('rr').value), df=parseNumber($('df').value);
+  const smoothWindow = Math.max(1, Math.floor(parseNumber($('smooth').value) || 1));
+  const warnings=[];
+  if(!(h>0 && rr>0)) warnings.push('Debe ingresar h y rr mayores que cero para calcular parámetros por superficie.');
+  if(!(df>0)) warnings.push('Debe ingresar df mayor que cero.');
+  const S=h*rr;
+  const measuredBase = prepareMeasuredPoints(state.measured, warnings);
+  let data=smoothMeasured(measuredBase, smoothWindow).map(p=>({...p, extrap:false}));
+  let iMax=0; for(let i=1;i<data.length;i++){ if(data[i].y>data[iMax].y) iMax=i; }
+  const lastMeasuredX=data[data.length-1].x;
+  if(lastMeasuredX < df){
+    if($('useExtrap').checked){ data = data.concat(fitTailExponential(data,iMax,df,warnings)); }
+    else warnings.push('La curva medida no llega a df y la extrapolación está desactivada. GD y T se calculan solo hasta el último dato medido.');
+  }
+  data.sort((a,b)=>a.x-b.x || (a.extrap?1:0));
+  iMax=0; for(let i=1;i<data.length;i++){ if(data[i].y>data[iMax].y) iMax=i; }
+  const Fmax=data[iMax].y, dmax=data[iMax].x;
+  const F50=0.5*Fmax, F25=0.25*Fmax;
+  const d50=interpX(data,F50,0,iMax,'up');
+  const d25=interpX(data,F25,0,iMax,'up');
+  const d50pm=interpX(data,F50,iMax,data.length-1,'down');
+  const d25pm=interpX(data,F25,iMax,data.length-1,'down');
+  const xEnd=Math.min(df, data[data.length-1].x);
+  const Wtotal=areaBetween(data,0,xEnd);
+  const WT=areaBetween(data,dmax,xEnd);
+  const Wpre=areaBetween(data,0,dmax);
+  const DT=Number.isFinite(d50pm) ? d50pm-dmax : NaN;
+  const RT=(S>0)? 1000*Fmax/S : NaN;
+  const IRT=(S>0 && Number.isFinite(d50) && Number.isFinite(d25) && d50>d25)? 1000*(F50-F25)/(S*(d50-d25)) : NaN;
+  const GD=(S>0 && Number.isFinite(Wtotal))? 1e6*Wtotal/S : NaN;
+  const T=(S>0 && Number.isFinite(WT))? 1e6*WT/S : NaN;
+  const IT=(Number.isFinite(T)&&Number.isFinite(DT))? T*DT : NaN;
+  const IF=(Number.isFinite(GD)&&Number.isFinite(d50pm)&&Number.isFinite(RT)&&RT>0)? GD*d50pm/RT : NaN;
+  const t0=state.measured[0].t, t1=state.measured[state.measured.length-1].t;
+  const x0=state.measured[0].x, x1=state.measured[state.measured.length-1].x;
+  const vEff=(t1>t0)? (x1-x0)/(t1-t0)*60 : NaN;
+  if(lastMeasuredX < df) warnings.push('El desplazamiento medido máximo es '+fmt(lastMeasuredX,3)+' mm, menor que df = '+fmt(df,3)+' mm.');
+  if(smoothWindow>1) warnings.push('La carga fue suavizada mediante media móvil de '+smoothWindow+' puntos para reducir ruido en la curva.');
+  if(!Number.isFinite(d50pm)) warnings.push('No se encontró d50pm en la fase postpico. Revise que la curva baje hasta 50% de Fmax.');
+  state.data=data; state.warnings=warnings;
+  state.results={h,rr,S,df,Fmax,dmax,F50,F25,d50,d25,d50pm,d25pm,DT,RT,IRT,Wtotal,WT,Wpre,GD,T,IT,IF,vEff,lastMeasuredX,nMeasured:state.measured.length,nTotal:data.length,extrapolated:data.some(p=>p.extrap),xEnd,smoothWindow,tailPoints:parseNumber($('tailPoints').value),minExtrapLoad:parseNumber($('minExtrapLoad').value),displacementMode:state.displacementMode,displacementLabel:(state.displacementMode==='deflexion_corr'?'Deflexion corregida por continuidad':'Cruceta')};
+  renderAll();
+}
+
+function renderAll(){
+  const r=state.results; if(!r) return;
+  $('mGD').textContent=fmtLong(r.GD); $('mT').textContent=fmtLong(r.T); $('mIT').textContent=fmtLong(r.IT); $('mIF').textContent=fmtLong(r.IF);
+  const cls=state.warnings.length?'warnbox':'okbox';
+  $('status').className=cls; $('status').innerHTML=state.warnings.length?('<b>Advertencias:</b><br>'+state.warnings.map(w=>'• '+w).join('<br>')):'Cálculo realizado sin advertencias críticas.';
+  const rows=[
+    ['Fmax','Carga máxima',r.Fmax,'kN'],['dmax','Desplazamiento a Fmax',r.dmax,'mm'],['F50','50% de Fmax',r.F50,'kN'],['d50','Desplazamiento al 50% en carga',r.d50,'mm'],['d50pm','Desplazamiento al 50% postpico',r.d50pm,'mm'],['F25','25% de Fmax',r.F25,'kN'],['d25','Desplazamiento al 25% en carga',r.d25,'mm'],['d25 postpico','Desplazamiento al 25% postpico',r.d25pm,'mm'],['DT','d50pm - dmax',r.DT,'mm'],['S','h × rr',r.S,'mm²'],['RT / σef','1000·Fmax/S',r.RT,'MPa'],['IRT','Rigidez a tracción',r.IRT,'MPa/mm'],['W total','Área bajo curva hasta df',r.Wtotal,'kN·mm'],['W T','Área postpico para T',r.WT,'kN·mm'],['GD','Energía total de rotura',r.GD,'J/m²'],['T','Tenacidad',r.T,'J/m²'],['IT','T × DT',r.IT,'(J/m²)·mm'],['IF','GD × d50pm / σef',r.IF,'mm³']
+  ];
+  $('resTable').innerHTML='<thead><tr><th>Símbolo</th><th>Parámetro</th><th>Valor</th><th>Unidad</th></tr></thead><tbody>'+rows.map(a=>`<tr><td><b>${a[0]}</b></td><td>${a[1]}</td><td>${fmtLong(a[2])}</td><td>${a[3]}</td></tr>`).join('')+'</tbody>';
+  $('dataTable').innerHTML='<thead><tr><th>#</th><th>Carga usada [kN]</th><th>Carga original [kN]</th><th>Desplazamiento usado [mm]</th><th>Cruceta [mm]</th><th>Deflexion original [mm]</th><th>Hora [s]</th><th>Tipo</th></tr></thead><tbody>'+state.data.map((p,i)=>`<tr><td>${i+1}</td><td>${fmt(p.y,4)}</td><td>${Number.isFinite(p.yRaw)?fmt(p.yRaw,4):''}</td><td>${fmt(p.x,4)}</td><td>${Number.isFinite(p.cruceta)?fmt(p.cruceta,4):''}</td><td>${Number.isFinite(p.deflexionOriginal)?fmt(p.deflexionOriginal,4):''}</td><td>${Number.isFinite(p.t)?fmt(p.t,3):''}</td><td>${p.extrap?'Extrapolado':'Medido'}</td></tr>`).join('')+'</tbody>';
+  ['btnCSV','btnXLS','btnPDF'].forEach(id=>$(id).disabled=false);
+  drawChart();
+}
+
+function drawChart(){
+  const c=$('chart'), ctx=c.getContext('2d'), r=state.results, data=state.data; if(!r||!data.length) return;
+  ctx.clearRect(0,0,c.width,c.height);
+  const pad={l:70,r:25,t:30,b:65}; const W=c.width-pad.l-pad.r, H=c.height-pad.t-pad.b;
+  const xmax=Math.max(r.df, ...data.map(p=>p.x))*1.03; const ymax=Math.max(...data.map(p=>p.y))*1.18;
+  const X=x=>pad.l + x/xmax*W; const Y=y=>pad.t + H - y/ymax*H;
+  ctx.font='13px Arial'; ctx.strokeStyle='#e5e7eb'; ctx.lineWidth=1;
+  for(let i=0;i<=10;i++){ const x=i*xmax/10; ctx.beginPath(); ctx.moveTo(X(x),pad.t); ctx.lineTo(X(x),pad.t+H); ctx.stroke(); ctx.fillStyle='#6b7280'; ctx.fillText(x.toFixed(1),X(x)-10,pad.t+H+22); }
+  for(let i=0;i<=8;i++){ const y=i*ymax/8; ctx.beginPath(); ctx.moveTo(pad.l,Y(y)); ctx.lineTo(pad.l+W,Y(y)); ctx.stroke(); ctx.fillStyle='#6b7280'; ctx.fillText(y.toFixed(2),18,Y(y)+4); }
+  ctx.strokeStyle='#111827'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(pad.l,pad.t); ctx.lineTo(pad.l,pad.t+H); ctx.lineTo(pad.l+W,pad.t+H); ctx.stroke();
+  ctx.fillStyle='#111827'; ctx.font='bold 15px Arial'; ctx.fillText('Carga [kN] vs '+(r.displacementLabel||'desplazamiento')+' [mm]',pad.l,pad.t-8); ctx.fillText('Desplazamiento [mm]',pad.l+W/2-70,c.height-18); ctx.save(); ctx.translate(22,pad.t+H/2+60); ctx.rotate(-Math.PI/2); ctx.fillText('Carga [kN]',0,0); ctx.restore();
+  function areaPoly(xa,xb,color){ if(!Number.isFinite(xa)||!Number.isFinite(xb)||xb<=xa) return; const pts=[]; pts.push({x:xa,y:0}); pts.push({x:xa,y:Math.max(0,interpY(data,xa))}); data.forEach(p=>{if(p.x>xa&&p.x<xb) pts.push({x:p.x,y:Math.max(0,p.y)});}); pts.push({x:xb,y:Math.max(0,interpY(data,xb))}); pts.push({x:xb,y:0}); ctx.fillStyle=color; ctx.beginPath(); pts.forEach((p,i)=>{ if(i===0)ctx.moveTo(X(p.x),Y(p.y)); else ctx.lineTo(X(p.x),Y(p.y)); }); ctx.closePath(); ctx.fill(); }
+  if($('showGD').checked) areaPoly(0,r.xEnd,'rgba(37,99,235,.18)');
+  if($('showT').checked) areaPoly(r.dmax,r.xEnd,'rgba(220,38,38,.18)');
+  if($('showIT').checked && Number.isFinite(r.d50pm)) areaPoly(r.dmax,r.d50pm,'rgba(234,179,8,.30)');
+  // measured curve
+  const measured=data.filter(p=>!p.extrap), extra=data.filter(p=>p.extrap);
+  ctx.strokeStyle='#1d4ed8'; ctx.lineWidth=3; ctx.beginPath(); measured.forEach((p,i)=>{ if(i===0)ctx.moveTo(X(p.x),Y(p.y)); else ctx.lineTo(X(p.x),Y(p.y)); }); ctx.stroke();
+  if(extra.length){ ctx.strokeStyle='#dc2626'; ctx.lineWidth=2; ctx.setLineDash([7,5]); ctx.beginPath(); const last=measured[measured.length-1]; ctx.moveTo(X(last.x),Y(last.y)); extra.forEach(p=>ctx.lineTo(X(p.x),Y(p.y))); ctx.stroke(); ctx.setLineDash([]); }
+  function marker(x,y,label,color){ if(!Number.isFinite(x)||!Number.isFinite(y)) return; ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=1.5; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(X(x),Y(0)); ctx.lineTo(X(x),Y(y)); ctx.stroke(); ctx.beginPath(); ctx.moveTo(X(0),Y(y)); ctx.lineTo(X(x),Y(y)); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(X(x),Y(y),4,0,Math.PI*2); ctx.fill(); ctx.fillText(label,X(x)+5,Y(y)-5); }
+  marker(r.dmax,r.Fmax,'Fmax / dmax','#dc2626'); marker(r.d50,r.F50,'F50','#f59e0b'); marker(r.d50pm,r.F50,'d50pm','#0284c7'); marker(r.d25,r.F25,'F25','#65a30d');
+  ctx.fillStyle='#374151'; ctx.font='12px Arial'; ctx.fillText('Azul: medido | Rojo discontinuo: extrapolado | Áreas activables: GD, T, IT',pad.l,pad.t+H+44);
+}
+
+function makeResultsRows(){ const r=state.results; return [
+  ['Ensayo', state.meta.Ensayo||''], ['Fuente de desplazamiento', r.displacementLabel||''], ['h [mm]',r.h], ['rr [mm]',r.rr], ['S [mm2]',r.S], ['df [mm]',r.df], ['Fmax [kN]',r.Fmax], ['dmax [mm]',r.dmax], ['d50 [mm]',r.d50], ['d50pm [mm]',r.d50pm], ['DT [mm]',r.DT], ['RT=sigma_ef [MPa]',r.RT], ['IRT [MPa/mm]',r.IRT], ['Wtotal [kN mm]',r.Wtotal], ['WT [kN mm]',r.WT], ['GD [J/m2]',r.GD], ['T [J/m2]',r.T], ['IT [(J/m2) mm]',r.IT], ['IF [mm3]',r.IF], ['Puntos medidos',r.nMeasured], ['Puntos totales',r.nTotal], ['Suavizado [puntos]',r.smoothWindow], ['Puntos de cola',r.tailPoints], ['Carga minima extrapolada [kN]',r.minExtrapLoad], ['Extrapolado',r.extrapolated?'Si':'No']
+]; }
+function download(name, mime, content){ const blob=new Blob([content],{type:mime}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
+async function readTextAuto(file){
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let enc = 'utf-8';
+  if(bytes.length >= 2 && bytes[0]===0xFF && bytes[1]===0xFE) enc='utf-16le';
+  else if(bytes.length >= 2 && bytes[0]===0xFE && bytes[1]===0xFF) enc='utf-16be';
+  else {
+    let zeros = 0;
+    for(let i=0;i<Math.min(bytes.length,120);i++){ if(bytes[i]===0) zeros++; }
+    if(zeros > 10) enc='utf-16le';
+  }
+  try { return new TextDecoder(enc).decode(bytes); }
+  catch(e){ return new TextDecoder('utf-8').decode(bytes); }
+}
+
+function exportCSV(){ if(!state.results)return; let s='Parametro,Valor\n'; makeResultsRows().forEach(r=>s+=`"${r[0]}","${r[1]}"\n`); s+='\nPunto,Carga_kN,Desplazamiento_usado_mm,Cruceta_mm,Deflexion_original_mm,Hora_s,Tipo\n'; state.data.forEach((p,i)=>s+=`${i+1},${p.y},${p.x},${Number.isFinite(p.cruceta)?p.cruceta:''},${Number.isFinite(p.deflexionOriginal)?p.deflexionOriginal:''},${Number.isFinite(p.t)?p.t:''},${p.extrap?'Extrapolado':'Medido'}\n`); download('reporte_fenix.csv','text/csv;charset=utf-8',s); }
+function exportXLS(){ if(!state.results)return; const rows=makeResultsRows().map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join(''); const data=state.data.map((p,i)=>`<tr><td>${i+1}</td><td>${p.y}</td><td>${p.x}</td><td>${Number.isFinite(p.cruceta)?p.cruceta:''}</td><td>${Number.isFinite(p.deflexionOriginal)?p.deflexionOriginal:''}</td><td>${Number.isFinite(p.t)?p.t:''}</td><td>${p.extrap?'Extrapolado':'Medido'}</td></tr>`).join(''); const html=`<html><head><meta charset="utf-8"></head><body><h2>Resultados Ensayo Fénix</h2><table border="1">${rows}</table><h2>Datos procesados</h2><table border="1"><tr><th>Punto</th><th>Carga usada kN</th><th>Desplazamiento usado mm</th><th>Cruceta mm</th><th>Deflexion original mm</th><th>Hora s</th><th>Tipo</th></tr>${data}</table></body></html>`; download('reporte_fenix.xls','application/vnd.ms-excel;charset=utf-8',html); }
+function pdfEscape(s){ return String(s).replace(/[\\()]/g,m=>'\\'+m).replace(/\n/g,' '); }
+function exportPDF(){
+  if(!state.results)return; const lines=['REPORTE ENSAYO FENIX', 'Archivo: '+($('fileName').textContent||''), 'Fecha reporte: '+new Date().toLocaleString(), '']; makeResultsRows().forEach(r=>lines.push(r[0]+': '+fmtLong(parseNumber(r[1]))+(Number.isFinite(parseNumber(r[1]))?'':r[1]))); if(state.warnings.length){lines.push(''); lines.push('Advertencias:'); state.warnings.forEach(w=>lines.push('- '+w));}
+  let content='BT /F1 12 Tf 50 790 Td 14 TL '; lines.slice(0,52).forEach((ln,i)=>{ content+='('+pdfEscape(ln)+') Tj T* '; }); content+='ET';
+  const objects=[]; function add(o){objects.push(o); return objects.length;}
+  const font=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const stream=add('<< /Length '+content.length+' >>\nstream\n'+content+'\nendstream');
+  const page=add('<< /Type /Page /Parent 4 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 '+font+' 0 R >> >> /Contents '+stream+' 0 R >>');
+  const pages=add('<< /Type /Pages /Kids ['+page+' 0 R] /Count 1 >>');
+  const catalog=add('<< /Type /Catalog /Pages '+pages+' 0 R >>');
+  let pdf='%PDF-1.4\n'; const offsets=[0]; objects.forEach((o,i)=>{offsets.push(pdf.length); pdf+=(i+1)+' 0 obj\n'+o+'\nendobj\n';}); const xref=pdf.length; pdf+='xref\n0 '+(objects.length+1)+'\n0000000000 65535 f \n'; for(let i=1;i<offsets.length;i++) pdf+=String(offsets[i]).padStart(10,'0')+' 00000 n \n'; pdf+='trailer << /Size '+(objects.length+1)+' /Root '+catalog+' 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+  download('reporte_fenix.pdf','application/pdf',pdf);
+}
+
+$('fileInput').addEventListener('change', async (e)=>{
+  const file=e.target.files[0]; if(!file) return; $('fileName').textContent=file.name;
+  try{ const text=await readTextAuto(file); const parsed=parseTxt(text); state.rawText=text; state.meta=parsed.meta; state.measured=parsed.data; calculate(); }
+  catch(err){ $('status').className='badbox'; $('status').textContent='Error al leer el archivo: '+err.message; console.error(err); }
+});
+['h','rr','df','dispMode','smooth','tailPoints','minExtrapLoad','useExtrap','showGD','showT','showIT'].forEach(id=>$(id).addEventListener('input',calculate));
+['showGD','showT','showIT'].forEach(id=>$(id).addEventListener('change',drawChart));
+$('btnCSV').addEventListener('click',exportCSV); $('btnXLS').addEventListener('click',exportXLS); $('btnPDF').addEventListener('click',exportPDF);
+
+// Dibujo inicial vacío
+(function init(){ const c=$('chart'), ctx=c.getContext('2d'); ctx.fillStyle='#6b7280'; ctx.font='18px Arial'; ctx.fillText('Cargue un archivo TXT para graficar la curva.',60,80); })();
+</script>
+</body>
+</html>
